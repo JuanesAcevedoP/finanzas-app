@@ -1,112 +1,179 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useCallback, useState } from "react";
+import { View, ScrollView, StyleSheet } from "react-native";
+import { Text, ActivityIndicator, Card } from "react-native-paper";
+import { useFocusEffect } from "expo-router";
+import { PieChart, BarChart } from "react-native-gifted-charts";
+import { listBudgetPeriods, BudgetPeriod } from "@/api/income";
+import { listExpenses, Expense } from "@/api/expenses";
+import { listCategories, Category } from "@/api/categories";
+import { listPaymentMethods, PaymentMethod } from "@/api/paymentMethods";
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+const PALETTE = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc949", "#af7aa1", "#ff9da7"];
 
-export default function TabTwoScreen() {
+export default function StatsScreen() {
+  const [periods, setPeriods] = useState<BudgetPeriod[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSlice, setSelectedSlice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [p, e, c, pm] = await Promise.all([
+        listBudgetPeriods(),
+        listExpenses(),
+        listCategories(),
+        listPaymentMethods(),
+      ]);
+      setPeriods(p);
+      setExpenses(e);
+      setCategories(c);
+      setPaymentMethods(pm);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  const expenseById = new Map(expenses.map((e) => [e.id, e]));
+
+  const categoryTotals = new Map<string, number>();
+  const paymentMethodTotals = new Map<string, number>();
+
+  periods.forEach((period) => {
+    period.allocations.forEach((a) => {
+      if (a.target_type !== "expense" || !a.expense_id) return;
+      const exp = expenseById.get(a.expense_id);
+      if (!exp) return;
+
+      const catName = categories.find((c) => c.id === exp.category_id)?.name ?? "Sin categoría";
+      categoryTotals.set(catName, (categoryTotals.get(catName) ?? 0) + a.planned_amount);
+
+      const pmName = paymentMethods.find((pm) => pm.id === exp.payment_method_id)?.name ?? "Sin definir";
+      paymentMethodTotals.set(pmName, (paymentMethodTotals.get(pmName) ?? 0) + a.planned_amount);
+    });
+  });
+
+  const pieData = Array.from(categoryTotals.entries()).map(([name, value], i) => ({
+    value,
+    text: name,
+    color: PALETTE[i % PALETTE.length],
+    onPress: () => setSelectedSlice(`${name}: $${value.toLocaleString("es-CO")}`),
+  }));
+
+  const pmPieData = Array.from(paymentMethodTotals.entries()).map(([name, value], i) => ({
+    value,
+    text: name,
+    color: PALETTE[(i + 3) % PALETTE.length],
+  }));
+
+  const barData = periods.slice(-6).flatMap((p) => {
+    const allocated = p.allocations.reduce((sum, a) => sum + a.planned_amount, 0);
+    return [
+      { value: p.total_income, label: p.period_start.slice(5), frontColor: "#4e79a7" },
+      { value: allocated, label: "", frontColor: "#e15759" },
+    ];
+  });
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text variant="headlineSmall" style={styles.title}>
+        Estadísticas
+      </Text>
+
+      {pieData.length === 0 ? (
+        <Text style={styles.empty}>Registra ingresos y gastos para ver tus estadísticas aquí.</Text>
+      ) : (
+        <>
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                Gastos por categoría
+              </Text>
+              <View style={styles.chartCenter}>
+                <PieChart data={pieData} donut radius={90} innerRadius={55} focusOnPress />
+              </View>
+              {selectedSlice && <Text style={styles.selected}>{selectedSlice}</Text>}
+              <View style={styles.legend}>
+                {pieData.map((d) => (
+                  <View key={d.text} style={styles.legendRow}>
+                    <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                    <Text style={styles.legendText}>{d.text}</Text>
+                  </View>
+                ))}
+              </View>
+            </Card.Content>
+          </Card>
+
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                Gastos por medio de pago
+              </Text>
+              <View style={styles.chartCenter}>
+                <PieChart data={pmPieData} radius={90} focusOnPress />
+              </View>
+              <View style={styles.legend}>
+                {pmPieData.map((d) => (
+                  <View key={d.text} style={styles.legendRow}>
+                    <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                    <Text style={styles.legendText}>{d.text}</Text>
+                  </View>
+                ))}
+              </View>
+            </Card.Content>
+          </Card>
+
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                Ingreso vs. asignado por periodo
+              </Text>
+              <BarChart
+                data={barData}
+                barWidth={18}
+                spacing={14}
+                roundedTop
+                noOfSections={4}
+                yAxisTextStyle={{ fontSize: 10 }}
+                xAxisLabelTextStyle={{ fontSize: 10 }}
+              />
+              <Text style={styles.hint}>Azul = ingreso total · Rojo = total asignado a gastos/ahorro</Text>
+            </Card.Content>
+          </Card>
+        </>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
+  container: { padding: 20, paddingBottom: 60 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  title: { marginBottom: 16 },
+  empty: { opacity: 0.7 },
+  card: { marginBottom: 16 },
+  cardTitle: { marginBottom: 12 },
+  chartCenter: { alignItems: "center", marginBottom: 8 },
+  selected: { textAlign: "center", marginBottom: 8, fontWeight: "600" },
+  legend: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
+  legendRow: { flexDirection: "row", alignItems: "center", marginRight: 12, marginBottom: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 4 },
+  legendText: { fontSize: 12 },
+  hint: { fontSize: 11, opacity: 0.6, marginTop: 8, textAlign: "center" },
 });

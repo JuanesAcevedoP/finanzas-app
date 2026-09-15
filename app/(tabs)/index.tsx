@@ -1,98 +1,230 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useCallback, useState } from "react";
+import { View, ScrollView, StyleSheet, RefreshControl } from "react-native";
+import {
+  Text,
+  Card,
+  Chip,
+  Button,
+  FAB,
+  Portal,
+  Dialog,
+  TextInput,
+  SegmentedButtons,
+  ActivityIndicator,
+} from "react-native-paper";
+import { useFocusEffect } from "expo-router";
+import { listBudgetPeriods, createIncome, completeAllocation, BudgetPeriod, Allocation } from "@/api/income";
+import { listExpenses, Expense } from "@/api/expenses";
+import { listSavingsGoals, SavingsGoal } from "@/api/savingsGoals";
+import { listPaymentMethods, PaymentMethod } from "@/api/paymentMethods";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Pendiente",
+  completed: "Cumplido",
+  at_risk: "En riesgo",
+};
 
-export default function HomeScreen() {
+const STATUS_COLOR: Record<string, string> = {
+  pending: "#9e9e9e",
+  completed: "#4caf50",
+  at_risk: "#f44336",
+};
+
+export default function DashboardScreen() {
+  const [periods, setPeriods] = useState<BudgetPeriod[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [goals, setGoals] = useState<SavingsGoal[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogVisible, setDialogVisible] = useState(false);
+
+  const [amount, setAmount] = useState("");
+  const [frequency, setFrequency] = useState<"quincenal" | "mensual">("quincenal");
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [p, e, g, pm] = await Promise.all([
+        listBudgetPeriods(),
+        listExpenses(),
+        listSavingsGoals(),
+        listPaymentMethods(),
+      ]);
+      setPeriods(p);
+      setExpenses(e);
+      setGoals(g);
+      setPaymentMethods(pm);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  const currentPeriod = periods[periods.length - 1];
+
+  const getTargetName = (a: Allocation) => {
+    if (a.target_type === "expense") {
+      return expenses.find((e) => e.id === a.expense_id)?.name ?? "Gasto";
+    }
+    return goals.find((g) => g.id === a.savings_goal_id)?.name ?? "Meta de ahorro";
+  };
+
+  const handleComplete = async (allocationId: number) => {
+    await completeAllocation(allocationId);
+    await load();
+  };
+
+  const handleCreateIncome = async () => {
+    setError("");
+    if (!amount) {
+      setError("Ingresa el monto");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createIncome({
+        amount: parseFloat(amount),
+        frequency,
+        received_date: receivedDate,
+        payment_method_id: paymentMethodId,
+      });
+      setDialogVisible(false);
+      setAmount("");
+      await load();
+    } catch (e) {
+      setError("No se pudo registrar el ingreso, revisa los datos");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}
+      >
+        <Text variant="headlineSmall" style={styles.title}>
+          Presupuesto actual
+        </Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        {!currentPeriod && (
+          <Text style={styles.empty}>Aún no has registrado ningún ingreso. Usa el botón "+" para empezar.</Text>
+        )}
+
+        {currentPeriod && (
+          <>
+            <Text style={styles.periodRange}>
+              {currentPeriod.period_start} → {currentPeriod.period_end} · Ingreso: $
+              {currentPeriod.total_income.toLocaleString("es-CO")}
+            </Text>
+
+            {currentPeriod.allocations.map((a) => (
+              <Card key={a.id} style={styles.card}>
+                <Card.Content style={styles.cardRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text>{getTargetName(a)}</Text>
+                    <Text style={styles.amount}>${a.planned_amount.toLocaleString("es-CO")}</Text>
+                  </View>
+                  <Chip style={{ backgroundColor: STATUS_COLOR[a.status] }} textStyle={{ color: "white" }}>
+                    {STATUS_LABEL[a.status]}
+                  </Chip>
+                </Card.Content>
+                {a.status !== "completed" && (
+                  <Card.Actions>
+                    <Button onPress={() => handleComplete(a.id)}>Marcar como cumplido</Button>
+                  </Card.Actions>
+                )}
+              </Card>
+            ))}
+          </>
+        )}
+      </ScrollView>
+
+      <FAB icon="plus" style={styles.fab} onPress={() => setDialogVisible(true)} label="Ingreso" />
+
+      <Portal>
+        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
+          <Dialog.Title>Registrar ingreso</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Monto"
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="numeric"
+              style={styles.input}
+            />
+            <SegmentedButtons
+              value={frequency}
+              onValueChange={(v) => setFrequency(v as "quincenal" | "mensual")}
+              buttons={[
+                { value: "quincenal", label: "Quincenal" },
+                { value: "mensual", label: "Mensual" },
+              ]}
+              style={styles.input}
+            />
+            <TextInput
+              label="Fecha recibido (AAAA-MM-DD)"
+              value={receivedDate}
+              onChangeText={setReceivedDate}
+              style={styles.input}
+            />
+            <View style={styles.chipRow}>
+              {paymentMethods.map((pm) => (
+                <Chip
+                  key={pm.id}
+                  selected={paymentMethodId === pm.id}
+                  onPress={() => setPaymentMethodId(pm.id)}
+                  style={styles.chip}
+                >
+                  {pm.name}
+                </Chip>
+              ))}
+            </View>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDialogVisible(false)}>Cancelar</Button>
+            <Button onPress={handleCreateIncome} loading={submitting}>
+              Guardar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  container: { flex: 1 },
+  scroll: { padding: 20, paddingBottom: 100 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  title: { marginBottom: 12 },
+  empty: { opacity: 0.7 },
+  periodRange: { marginBottom: 16, opacity: 0.8 },
+  card: { marginBottom: 10 },
+  cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  amount: { opacity: 0.7, marginTop: 2 },
+  fab: { position: "absolute", right: 16, bottom: 24 },
+  input: { marginBottom: 12 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", marginBottom: 8 },
+  chip: { marginRight: 8, marginBottom: 8 },
+  error: { color: "red" },
 });
