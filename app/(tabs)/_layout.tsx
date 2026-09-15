@@ -7,14 +7,18 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() === 'dark' ? 'dark' : 'light';
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: Colors[colorScheme].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
+        // expo-router's Tabs vendors its own copy of BottomTabBarButtonProps, which after the
+        // SDK 57 bump no longer structurally matches @react-navigation/bottom-tabs' type that
+        // HapticTab is declared with (pressColor: string vs ColorValue). Runtime shape is
+        // identical, so this is a type-only mismatch between duplicate type copies.
+        tabBarButton: HapticTab as typeof HapticTab & ((props: any) => React.ReactNode),
       }}>
       <Tabs.Screen
         name="index"
